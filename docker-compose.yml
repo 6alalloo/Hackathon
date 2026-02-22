@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  codewiki:
+    build: .
+    container_name: codewiki-generator
+    ports:
+      - "8080:8080"
+    environment:
+      - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
+      - SPRING_PROFILES_ACTIVE=prod
+    volumes:
+      - codewiki-data:/app/data
+      - codewiki-repos:/app/repos
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  codewiki-data:
+    driver: local
+  codewiki-repos:
+    driver: local
