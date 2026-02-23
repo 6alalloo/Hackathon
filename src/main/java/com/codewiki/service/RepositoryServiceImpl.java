@@ -1,7 +1,11 @@
 package com.codewiki.service;
 
+import com.codewiki.dto.ErrorCode;
+import com.codewiki.exception.CloningException;
+import com.codewiki.exception.ValidationException;
 import com.codewiki.model.CodeFile;
 import com.codewiki.model.ValidationResult;
+import com.codewiki.util.LoggingContext;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.slf4j.Logger;
@@ -106,12 +110,16 @@ public class RepositoryServiceImpl implements RepositoryService {
     @Override
     public long getRepositorySize(String url) throws GitAPIException {
         logger.debug("Checking repository size for: {}", url);
+        LoggingContext.setRepositoryUrl(url);
         
         try {
             // Extract owner and repo from URL
             Matcher matcher = GITHUB_URL_PATTERN.matcher(url);
             if (!matcher.matches()) {
-                throw new GitAPIException("Invalid GitHub URL format") {};
+                throw new ValidationException(
+                    ErrorCode.INVALID_REPOSITORY_URL,
+                    "Invalid GitHub URL format"
+                );
             }
             
             String owner = matcher.group(1);
@@ -129,7 +137,11 @@ public class RepositoryServiceImpl implements RepositoryService {
             
             if (response == null || !response.containsKey("size")) {
                 logger.error("Invalid response from GitHub API for repository: {}", url);
-                throw new GitAPIException("Failed to retrieve repository size") {};
+                throw new CloningException(
+                    ErrorCode.REPOSITORY_NOT_FOUND,
+                    "Repository not found or inaccessible",
+                    List.of("Verify the repository URL is correct", "Ensure the repository is public")
+                );
             }
             
             // GitHub API returns size in KB, convert to bytes
@@ -143,79 +155,127 @@ public class RepositoryServiceImpl implements RepositoryService {
             if (sizeInBytes > MAX_REPOSITORY_SIZE_BYTES) {
                 logger.warn("Repository size {} bytes exceeds maximum allowed size {} bytes", 
                     sizeInBytes, MAX_REPOSITORY_SIZE_BYTES);
-                throw new GitAPIException(
+                throw new ValidationException(
+                    ErrorCode.REPOSITORY_TOO_LARGE,
                     String.format("Repository size (%.2f MB) exceeds maximum allowed size (%d MB)", 
-                        sizeInBytes / 1024.0 / 1024.0, maxSizeMb)
-                ) {};
+                        sizeInBytes / 1024.0 / 1024.0, maxSizeMb),
+                    List.of("Try a smaller repository", "Contact support if you need to process larger repositories")
+                );
             }
             
             return sizeInBytes;
             
+        } catch (ValidationException | CloningException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error checking repository size for {}: {}", url, e.getMessage());
-            if (e instanceof GitAPIException) {
-                throw (GitAPIException) e;
-            }
-            throw new GitAPIException("Failed to check repository size: " + e.getMessage()) {};
+            throw new CloningException(
+                ErrorCode.CLONING_FAILED,
+                "Failed to check repository size: " + e.getMessage(),
+                List.of("Check your internet connection", "Verify the repository URL is correct")
+            );
         }
     }
     
     @Override
     public Path cloneRepository(String url) throws GitAPIException {
         logger.debug("Cloning repository: {}", url);
+        LoggingContext.setRepositoryUrl(url);
         
-        Path clonePath = null;
-        try {
-            // Extract repository name from URL
-            Matcher matcher = GITHUB_URL_PATTERN.matcher(url);
-            if (!matcher.matches()) {
-                throw new GitAPIException("Invalid GitHub URL format") {};
-            }
-            
-            String repo = matcher.group(2);
-            
-            // Generate unique directory name using repository name and timestamp
-            String uniqueDirName = String.format("%s_%d", repo, System.currentTimeMillis());
-            clonePath = Paths.get(cloneBasePath, uniqueDirName);
-            
-            // Create base directory if it doesn't exist
-            File baseDir = new File(cloneBasePath);
-            if (!baseDir.exists()) {
-                logger.debug("Creating base directory: {}", cloneBasePath);
-                baseDir.mkdirs();
-            }
-            
-            logger.debug("Cloning to directory: {}", clonePath);
-            
-            // Clone the repository using JGit
-            Git git = Git.cloneRepository()
-                .setURI(url)
-                .setDirectory(clonePath.toFile())
-                .call();
-            
-            git.close();
-            
-            logger.debug("Repository cloned successfully to: {}", clonePath);
-            return clonePath;
-            
-        } catch (Exception e) {
-            logger.error("Error cloning repository {}: {}", url, e.getMessage());
-            
-            // Clean up partial clone on failure
-            if (clonePath != null && Files.exists(clonePath)) {
-                logger.debug("Cleaning up partial clone at: {}", clonePath);
+        // Retry logic: attempt once, then retry after 2 seconds if it fails
+        int maxAttempts = 2;
+        long retryDelayMs = 2000;
+        
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            Path clonePath = null;
+            try {
+                // Extract repository name from URL
+                Matcher matcher = GITHUB_URL_PATTERN.matcher(url);
+                if (!matcher.matches()) {
+                    throw new ValidationException(
+                        ErrorCode.INVALID_REPOSITORY_URL,
+                        "Invalid GitHub URL format"
+                    );
+                }
+                
+                String repo = matcher.group(2);
+                
+                // Generate unique directory name using repository name and timestamp
+                String uniqueDirName = String.format("%s_%d", repo, System.currentTimeMillis());
+                clonePath = Paths.get(cloneBasePath, uniqueDirName);
+                
+                // Create base directory if it doesn't exist
+                File baseDir = new File(cloneBasePath);
+                if (!baseDir.exists()) {
+                    logger.debug("Creating base directory: {}", cloneBasePath);
+                    baseDir.mkdirs();
+                }
+                
+                logger.debug("Cloning to directory: {} (attempt {}/{})", clonePath, attempt, maxAttempts);
+                
+                // Clone the repository using JGit
+                Git git = Git.cloneRepository()
+                    .setURI(url)
+                    .setDirectory(clonePath.toFile())
+                    .call();
+                
+                git.close();
+                
+                logger.info("Repository cloned successfully to: {}", clonePath);
+                return clonePath;
+                
+            } catch (ValidationException e) {
+                // Don't retry validation errors
+                throw e;
+            } catch (Exception e) {
+                logger.warn("Error cloning repository {} (attempt {}/{}): {}", 
+                    url, attempt, maxAttempts, e.getMessage());
+                
+                // Clean up partial clone on failure
+                if (clonePath != null && Files.exists(clonePath)) {
+                    logger.debug("Cleaning up partial clone at: {}", clonePath);
+                    try {
+                        cleanupRepository(clonePath);
+                    } catch (Exception cleanupEx) {
+                        logger.warn("Failed to cleanup partial clone: {}", cleanupEx.getMessage());
+                    }
+                }
+                
+                // If this was the last attempt, throw exception
+                if (attempt == maxAttempts) {
+                    logger.error("Failed to clone repository after {} attempts: {}", maxAttempts, url);
+                    throw new CloningException(
+                        ErrorCode.CLONING_FAILED,
+                        "Failed to clone repository after " + maxAttempts + " attempts: " + e.getMessage(),
+                        List.of(
+                            "Check your internet connection",
+                            "Verify the repository URL is correct and the repository is public",
+                            "Try again later"
+                        )
+                    );
+                }
+                
+                // Wait before retrying
                 try {
-                    cleanupRepository(clonePath);
-                } catch (Exception cleanupEx) {
-                    logger.warn("Failed to cleanup partial clone: {}", cleanupEx.getMessage());
+                    logger.debug("Waiting {} ms before retry", retryDelayMs);
+                    Thread.sleep(retryDelayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new CloningException(
+                        ErrorCode.CLONING_FAILED,
+                        "Cloning interrupted",
+                        List.of("Try again")
+                    );
                 }
             }
-            
-            if (e instanceof GitAPIException) {
-                throw (GitAPIException) e;
-            }
-            throw new GitAPIException("Failed to clone repository: " + e.getMessage()) {};
         }
+        
+        // Should never reach here
+        throw new CloningException(
+            ErrorCode.CLONING_FAILED,
+            "Failed to clone repository",
+            List.of("Try again later")
+        );
     }
     
     @Override
@@ -224,7 +284,10 @@ public class RepositoryServiceImpl implements RepositoryService {
         
         if (repoPath == null || !Files.exists(repoPath)) {
             logger.warn("Repository path does not exist: {}", repoPath);
-            return Collections.emptyList();
+            throw new ValidationException(
+                ErrorCode.NO_CODE_FILES,
+                "Repository path does not exist"
+            );
         }
         
         List<CodeFile> codeFiles = new ArrayList<>();
@@ -254,11 +317,24 @@ public class RepositoryServiceImpl implements RepositoryService {
             
             if (codeFiles.isEmpty()) {
                 logger.warn("No code files detected in repository: {}", repoPath);
+                throw new ValidationException(
+                    ErrorCode.NO_CODE_FILES,
+                    "No code files detected in repository",
+                    List.of(
+                        "Ensure the repository contains source code files",
+                        "Supported languages: Java, Python, JavaScript, TypeScript, and more"
+                    )
+                );
             }
             
+        } catch (ValidationException e) {
+            throw e;
         } catch (IOException e) {
             logger.error("Error detecting code files in {}: {}", repoPath, e.getMessage());
-            return Collections.emptyList();
+            throw new ValidationException(
+                ErrorCode.NO_CODE_FILES,
+                "Failed to scan repository for code files: " + e.getMessage()
+            );
         }
         
         return codeFiles;
@@ -294,10 +370,11 @@ public class RepositoryServiceImpl implements RepositoryService {
         
         try {
             deleteDirectory(repoPath.toFile());
-            logger.debug("Repository cleanup successful: {}", repoPath);
+            logger.info("Repository cleanup successful: {}", repoPath);
         } catch (IOException e) {
-            logger.error("Error cleaning up repository at {}: {}", repoPath, e.getMessage());
-            throw new RuntimeException("Failed to cleanup repository: " + e.getMessage(), e);
+            logger.error("Error cleaning up repository at {}: {}", repoPath, e.getMessage(), e);
+            // Don't throw exception - cleanup failures shouldn't break the system
+            // Log the error and continue operating
         }
     }
     
