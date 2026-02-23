@@ -2,7 +2,11 @@ package com.codewiki.service;
 
 import com.codewiki.client.LLMClient;
 import com.codewiki.dto.ChatResponse;
-import com.codewiki.model.*;
+import com.codewiki.model.ChatMessage;
+import com.codewiki.model.FileExplanation;
+import com.codewiki.model.MessageRole;
+import com.codewiki.model.Wiki;
+import com.codewiki.model.WikiSection;
 import com.codewiki.repository.ChatMessageRepository;
 import com.codewiki.repository.FileExplanationRepository;
 import com.codewiki.repository.WikiRepository;
@@ -12,7 +16,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -85,6 +93,7 @@ public class ChatServiceImpl implements ChatService {
     }
     
     @Override
+    @Transactional(readOnly = true)
     public List<WikiSection> retrieveRelevantSections(String wikiId, String question) {
         logger.debug("Retrieving relevant sections for question: {}", question);
         
@@ -92,11 +101,12 @@ public class ChatServiceImpl implements ChatService {
         Set<String> keywords = extractKeywords(question);
         logger.debug("Extracted keywords: {}", keywords);
         
-        // Get all sections for the wiki
-        Wiki wiki = wikiRepository.findById(wikiId)
-                .orElseThrow(() -> new IllegalArgumentException("Wiki not found: " + wikiId));
-        
-        List<WikiSection> allSections = wiki.getSections();
+        // Ensure wiki exists
+        if (wikiRepository.findById(wikiId).isEmpty()) {
+            throw new IllegalArgumentException("Wiki not found: " + wikiId);
+        }
+
+        List<WikiSection> allSections = wikiSectionRepository.findByWikiId(wikiId);
         
         // Score and rank sections by relevance
         List<ScoredSection> scoredSections = allSections.stream()
@@ -270,39 +280,16 @@ public class ChatServiceImpl implements ChatService {
     }
     
     private String injectHyperlinks(String answer, String wikiId, List<WikiSection> allSections) {
-        String result = answer;
-        
-        // Pattern to match section references: "in the [section name]", "as explained in [section]", etc.
-        Pattern pattern = Pattern.compile(
-                "(?:in the|as explained in|see the|refer to the|check the|described in the)\\s+([A-Z][\\w\\s]+?)(?:\\s+section)?(?=[\\s.,;!?]|$)",
-                Pattern.CASE_INSENSITIVE
-        );
-        
-        Matcher matcher = pattern.matcher(answer);
-        StringBuffer sb = new StringBuffer();
-        
-        while (matcher.find()) {
-            String sectionReference = matcher.group(1).trim();
-            
-            // Find matching section
-            Optional<WikiSection> matchingSection = allSections.stream()
-                    .filter(section -> section.getTitle().equalsIgnoreCase(sectionReference) ||
-                                     section.getTitle().toLowerCase().contains(sectionReference.toLowerCase()))
-                    .findFirst();
-            
-            if (matchingSection.isPresent()) {
-                WikiSection section = matchingSection.get();
-                String link = String.format("[%s](/wiki/%s/section/%s)", 
-                        section.getTitle(), wikiId, section.getId());
-                
-                // Replace the section reference with hyperlink
-                String replacement = matcher.group(0).replace(sectionReference, link);
-                matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
-            }
+        String linkedAnswer = answer;
+
+        for (WikiSection section : allSections) {
+            String title = section.getTitle();
+            String link = String.format("[%s](/wiki/%s/section/%s)", title, wikiId, section.getId());
+            String regex = "(?i)\\b" + Pattern.quote(title) + "\\b";
+            linkedAnswer = linkedAnswer.replaceAll(regex, Matcher.quoteReplacement(link));
         }
-        
-        matcher.appendTail(sb);
-        return sb.toString();
+
+        return linkedAnswer;
     }
     
     private void saveMessage(Wiki wiki, MessageRole role, String content) {

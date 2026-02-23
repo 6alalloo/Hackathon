@@ -1,6 +1,15 @@
 package com.codewiki.model;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Id;
+import jakarta.persistence.Lob;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -14,11 +23,13 @@ public class GenerationStatus {
     @Column(nullable = false)
     private String wikiId;
     
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String phase;
+    private GenerationPhase phase;
     
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String status;
+    private GenerationState status;
     
     @Lob
     @Column(columnDefinition = "TEXT")
@@ -50,19 +61,19 @@ public class GenerationStatus {
         this.wikiId = wikiId;
     }
     
-    public String getPhase() {
+    public GenerationPhase getPhase() {
         return phase;
     }
     
-    public void setPhase(String phase) {
+    public void setPhase(GenerationPhase phase) {
         this.phase = phase;
     }
     
-    public String getStatus() {
+    public GenerationState getStatus() {
         return status;
     }
     
-    public void setStatus(String status) {
+    public void setStatus(GenerationState status) {
         this.status = status;
     }
     
@@ -82,8 +93,9 @@ public class GenerationStatus {
         this.updatedAt = updatedAt;
     }
     
+    @PrePersist
     @PreUpdate
-    public void preUpdate() {
+    public void updateTimestamp() {
         this.updatedAt = LocalDateTime.now();
     }
 }

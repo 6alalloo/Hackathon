@@ -166,12 +166,22 @@ class RepositoryServicePropertyTest {
             validGitHubUrls().map(url -> url + "/extra/path"),
             
             // Special characters in owner/repo
-            Arbitraries.strings()
-                .withCharRange('a', 'z')
-                .withChars('@', '#', '$', '%', '&', '*', ' ')
-                .ofMinLength(1)
-                .ofMaxLength(20)
-                .map(name -> "https://github.com/" + name + "/" + name),
+            Combinators.combine(
+                Arbitraries.strings()
+                    .withCharRange('a', 'z')
+                    .numeric()
+                    .ofMinLength(1)
+                    .ofMaxLength(10),
+                Arbitraries.of("@", "#", "$", "%", "&", "*", " "),
+                Arbitraries.strings()
+                    .withCharRange('a', 'z')
+                    .numeric()
+                    .ofMinLength(0)
+                    .ofMaxLength(10)
+            ).as((prefix, special, suffix) -> {
+                String invalid = prefix + special + suffix;
+                return "https://github.com/" + invalid + "/" + invalid;
+            }),
             
             // Just the domain
             Arbitraries.just("https://github.com/"),

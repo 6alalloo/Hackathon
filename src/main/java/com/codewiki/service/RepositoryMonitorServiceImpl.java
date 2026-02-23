@@ -5,6 +5,7 @@ import com.codewiki.repository.WikiRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -27,23 +28,28 @@ public class RepositoryMonitorServiceImpl implements RepositoryMonitorService {
     private static final Pattern GITHUB_URL_PATTERN = 
         Pattern.compile("^https://github\\.com/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_.-]+?)(?:\\.git)?$");
     
-    @Autowired
     private WikiRepository wikiRepository;
     
     private final WebClient webClient;
-    
+
+    @Autowired
+    public RepositoryMonitorServiceImpl(
+            WikiRepository wikiRepository,
+            @Qualifier("githubWebClient") WebClient webClient) {
+        this.wikiRepository = wikiRepository;
+        this.webClient = webClient;
+    }
+
+    // Fallback constructor for isolated tests.
     public RepositoryMonitorServiceImpl() {
-        this.webClient = WebClient.builder()
-            .baseUrl("https://api.github.com")
-            .build();
+        this(null, WebClient.builder().baseUrl("https://api.github.com").build());
     }
     
     /**
      * Scheduled task that runs every 24 hours to check for repository updates.
-     * Cron expression: "0 0 0 * * ?" = every day at midnight
      */
     @Override
-    @Scheduled(cron = "0 0 0 * * ?")
+    @Scheduled(cron = "${repository.monitor.cron}")
     public void checkForUpdates() {
         logger.info("Starting scheduled repository update check");
         

@@ -65,9 +65,9 @@ public class LoggingContext {
     }
     
     /**
-     * Sanitize URL to remove sensitive information
+     * Sanitize URL to remove sensitive information.
      */
-    private static String sanitizeUrl(String url) {
+    public static String sanitizeUrl(String url) {
         if (url == null) {
             return null;
         }

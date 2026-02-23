@@ -10,6 +10,8 @@ import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -19,7 +21,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -36,9 +41,6 @@ public class RepositoryServiceImpl implements RepositoryService {
     // Pattern for valid GitHub repository URLs: https://github.com/{owner}/{repo}
     private static final Pattern GITHUB_URL_PATTERN = 
         Pattern.compile("^https://github\\.com/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_.-]+?)(?:\\.git)?$");
-    
-    // Maximum repository size in bytes (10MB)
-    private static final long MAX_REPOSITORY_SIZE_BYTES = 10485760L;
     
     // Map of file extensions to programming languages
     private static final Map<String, String> EXTENSION_TO_LANGUAGE = Map.ofEntries(
@@ -77,11 +79,15 @@ public class RepositoryServiceImpl implements RepositoryService {
     private int maxSizeMb;
     
     private final WebClient webClient;
-    
+
+    @Autowired
+    public RepositoryServiceImpl(@Qualifier("githubWebClient") WebClient webClient) {
+        this.webClient = webClient;
+    }
+
+    // Fallback constructor for isolated unit tests that instantiate the service directly.
     public RepositoryServiceImpl() {
-        this.webClient = WebClient.builder()
-            .baseUrl("https://api.github.com")
-            .build();
+        this(WebClient.builder().baseUrl("https://api.github.com").build());
     }
     
     @Override
@@ -89,12 +95,12 @@ public class RepositoryServiceImpl implements RepositoryService {
         logger.debug("Validating repository URL: {}", url);
         
         // Check for null or empty URL
-        if (url == null || url.trim().isEmpty()) {
+        if (url == null || url.strip().isEmpty()) {
             return ValidationResult.failure("Repository URL cannot be null or empty");
         }
         
         // Trim whitespace
-        url = url.trim();
+        url = url.strip();
         
         // Check URL pattern
         if (!GITHUB_URL_PATTERN.matcher(url).matches()) {
@@ -152,9 +158,10 @@ public class RepositoryServiceImpl implements RepositoryService {
             logger.debug("Repository size: {} KB ({} bytes)", sizeInKb, sizeInBytes);
             
             // Check if repository exceeds maximum size
-            if (sizeInBytes > MAX_REPOSITORY_SIZE_BYTES) {
+            long maxRepositorySizeBytes = maxRepositorySizeBytes();
+            if (sizeInBytes > maxRepositorySizeBytes) {
                 logger.warn("Repository size {} bytes exceeds maximum allowed size {} bytes", 
-                    sizeInBytes, MAX_REPOSITORY_SIZE_BYTES);
+                    sizeInBytes, maxRepositorySizeBytes);
                 throw new ValidationException(
                     ErrorCode.REPOSITORY_TOO_LARGE,
                     String.format("Repository size (%.2f MB) exceeds maximum allowed size (%d MB)", 
@@ -305,7 +312,8 @@ public class RepositoryServiceImpl implements RepositoryService {
                     
                     if (extension != null && EXTENSION_TO_LANGUAGE.containsKey(extension)) {
                         String language = EXTENSION_TO_LANGUAGE.get(extension);
-                        String relativePath = repoPath.relativize(path).toString();
+                        String relativePath = repoPath.relativize(path).toString()
+                                .replace(File.separatorChar, '/');
                         return new CodeFile(relativePath, language);
                     }
                     return null;
@@ -338,6 +346,10 @@ public class RepositoryServiceImpl implements RepositoryService {
         }
         
         return codeFiles;
+    }
+
+    private long maxRepositorySizeBytes() {
+        return maxSizeMb * 1024L * 1024L;
     }
     
     /**

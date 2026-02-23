@@ -1,8 +1,13 @@
 package com.codewiki.service;
 
 import com.codewiki.client.LLMClient;
-import com.codewiki.model.*;
-import com.codewiki.repository.WikiRepository;
+import com.codewiki.model.CodeFile;
+import com.codewiki.model.FileExplanation;
+import com.codewiki.model.RepositoryContext;
+import com.codewiki.model.SectionType;
+import com.codewiki.model.Wiki;
+import com.codewiki.model.WikiSection;
+import com.codewiki.model.WikiStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -11,7 +16,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
@@ -27,14 +36,11 @@ public class WikiGeneratorServiceImpl implements WikiGeneratorService {
     
     private final LLMClient llmClient;
     private final RepositoryService repositoryService;
-    private final WikiRepository wikiRepository;
     
     public WikiGeneratorServiceImpl(LLMClient llmClient, 
-                                   RepositoryService repositoryService,
-                                   WikiRepository wikiRepository) {
+                                   RepositoryService repositoryService) {
         this.llmClient = llmClient;
         this.repositoryService = repositoryService;
-        this.wikiRepository = wikiRepository;
     }
     
     @Override
@@ -64,7 +70,7 @@ public class WikiGeneratorServiceImpl implements WikiGeneratorService {
             String interactions = generateComponentInteractions(context);
             logger.info("Generated component interactions section");
             
-            // Assemble and save wiki
+            // Assemble wiki content (persistence is handled by orchestration service)
             Wiki wiki = assembleWiki(repositoryUrl, context.getCommitHash(), 
                                     overview, architecture, interactions, fileExplanations);
             
@@ -175,7 +181,6 @@ public class WikiGeneratorServiceImpl implements WikiGeneratorService {
     }
     
     @Override
-    @Transactional
     public Wiki assembleWiki(String repositoryUrl, String commitHash, String overview,
                             String architecture, String interactions, List<FileExplanation> fileExplanations) {
         logger.debug("Assembling wiki for repository: {}", repositoryUrl);
@@ -222,8 +227,7 @@ public class WikiGeneratorServiceImpl implements WikiGeneratorService {
         }
         wiki.setFileExplanations(fileExplanations);
         
-        // Save wiki (cascades to sections and file explanations)
-        return wikiRepository.save(wiki);
+        return wiki;
     }
     
     // Helper methods
@@ -246,7 +250,7 @@ public class WikiGeneratorServiceImpl implements WikiGeneratorService {
         Map<String, List<String>> dirStructure = new TreeMap<>();
         
         for (CodeFile file : codeFiles) {
-            String path = file.getFilePath();
+            String path = normalizePath(file.getFilePath());
             int lastSlash = path.lastIndexOf('/');
             String dir = lastSlash > 0 ? path.substring(0, lastSlash) : ".";
             String fileName = lastSlash > 0 ? path.substring(lastSlash + 1) : path;
@@ -291,7 +295,7 @@ public class WikiGeneratorServiceImpl implements WikiGeneratorService {
         Map<String, List<CodeFile>> grouped = new LinkedHashMap<>();
         
         for (CodeFile file : codeFiles) {
-            String path = file.getFilePath();
+            String path = normalizePath(file.getFilePath());
             int lastSlash = path.lastIndexOf('/');
             String dir = lastSlash > 0 ? path.substring(0, lastSlash) : ".";
             
@@ -334,6 +338,10 @@ public class WikiGeneratorServiceImpl implements WikiGeneratorService {
             return parts[parts.length - 2] + "/" + parts[parts.length - 1].replace(".git", "");
         }
         return repositoryUrl;
+    }
+
+    private String normalizePath(String path) {
+        return path.replace('\\', '/');
     }
     
     private String buildOverviewPrompt(RepositoryContext context) {

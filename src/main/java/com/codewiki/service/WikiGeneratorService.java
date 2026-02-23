@@ -73,7 +73,7 @@ public interface WikiGeneratorService {
     
     /**
      * Assembles wiki from all generated sections.
-     * Saves Wiki entity with all sections and file explanations.
+     * Returns the generated aggregate without persisting it.
      * 
      * @param repositoryUrl the GitHub repository URL
      * @param commitHash the commit hash
@@ -81,7 +81,7 @@ public interface WikiGeneratorService {
      * @param architecture the architecture content
      * @param interactions the component interactions content
      * @param fileExplanations the file explanations
-     * @return the assembled and persisted Wiki entity
+     * @return the assembled Wiki aggregate
      */
     Wiki assembleWiki(String repositoryUrl, String commitHash, String overview, 
                      String architecture, String interactions, List<FileExplanation> fileExplanations);

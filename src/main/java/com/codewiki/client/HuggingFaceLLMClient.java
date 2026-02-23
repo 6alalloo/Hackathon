@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -33,8 +34,10 @@ public class HuggingFaceLLMClient implements LLMClient {
     private final int maxTokens;
     private final int retryAttempts;
     private final List<Long> retryDelays;
-    
+
+    @Autowired
     public HuggingFaceLLMClient(
+            WebClient.Builder webClientBuilder,
             @Value("${huggingface.api.url}") String apiUrl,
             @Value("${huggingface.api.key}") String apiKey,
             @Value("${huggingface.api.model:Qwen/Qwen2.5-Coder-7B-Instruct}") String modelName,
@@ -42,7 +45,42 @@ public class HuggingFaceLLMClient implements LLMClient {
             @Value("${huggingface.api.max-tokens:2048}") int maxTokens,
             @Value("${huggingface.api.retry-attempts:3}") int retryAttempts,
             @Value("${huggingface.api.retry-delays:1000,2000,4000}") String retryDelaysStr) {
-        
+        this(
+                buildWebClient(webClientBuilder, apiUrl, apiKey, modelName),
+                modelName,
+                temperature,
+                maxTokens,
+                retryAttempts,
+                retryDelaysStr
+        );
+    }
+
+    // Convenience constructor for isolated tests.
+    public HuggingFaceLLMClient(
+            String apiUrl,
+            String apiKey,
+            String modelName,
+            double temperature,
+            int maxTokens,
+            int retryAttempts,
+            String retryDelaysStr) {
+        this(
+                buildWebClient(WebClient.builder(), apiUrl, apiKey, modelName),
+                modelName,
+                temperature,
+                maxTokens,
+                retryAttempts,
+                retryDelaysStr
+        );
+    }
+
+    private HuggingFaceLLMClient(
+            WebClient webClient,
+            String modelName,
+            double temperature,
+            int maxTokens,
+            int retryAttempts,
+            String retryDelaysStr) {
         this.modelName = modelName;
         this.temperature = temperature;
         this.maxTokens = maxTokens;
@@ -52,14 +90,21 @@ public class HuggingFaceLLMClient implements LLMClient {
         // Parse retry delays from comma-separated string
         this.retryDelays = parseRetryDelays(retryDelaysStr);
         
-        // Build WebClient with base URL and authorization header
-        this.webClient = WebClient.builder()
+        this.webClient = webClient;
+        
+        logger.info("HuggingFaceLLMClient initialized with model: {}", modelName);
+    }
+
+    private static WebClient buildWebClient(
+            WebClient.Builder webClientBuilder,
+            String apiUrl,
+            String apiKey,
+            String modelName) {
+        return webClientBuilder
                 .baseUrl(apiUrl + "/" + modelName)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
-        
-        logger.info("HuggingFaceLLMClient initialized with model: {}", modelName);
     }
     
     private List<Long> parseRetryDelays(String delaysStr) {

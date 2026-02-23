@@ -1,15 +1,23 @@
 package com.codewiki.controller;
 
 import com.codewiki.dto.ChatRequest;
+import com.codewiki.dto.ChatMessageDTO;
 import com.codewiki.dto.ChatResponse;
 import com.codewiki.model.ChatMessage;
 import com.codewiki.service.ChatService;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * REST controller for chatbot functionality.
@@ -39,25 +47,15 @@ public class ChatController {
     @PostMapping
     public ResponseEntity<ChatResponse> askQuestion(
             @PathVariable String wikiId,
-            @RequestBody ChatRequest request) {
+            @Valid @RequestBody ChatRequest request) {
         
         logger.info("Received chat question for wiki {}: {}", wikiId, request.getQuestion());
-        
-        if (request.getQuestion() == null || request.getQuestion().trim().isEmpty()) {
-            return ResponseEntity.badRequest().build();
-        }
-        
         try {
             ChatResponse response = chatService.askQuestion(wikiId, request.getQuestion());
             return ResponseEntity.ok(response);
-            
         } catch (IllegalArgumentException e) {
-            logger.error("Invalid wiki ID: {}", wikiId, e);
+            logger.warn("Invalid chat request for wiki {}: {}", wikiId, e.getMessage());
             return ResponseEntity.notFound().build();
-            
-        } catch (Exception e) {
-            logger.error("Error processing chat question for wiki {}", wikiId, e);
-            return ResponseEntity.internalServerError().build();
         }
     }
     
@@ -70,16 +68,26 @@ public class ChatController {
      * @return List of chat messages ordered by timestamp
      */
     @GetMapping("/history")
-    public ResponseEntity<List<ChatMessage>> getHistory(@PathVariable String wikiId) {
+    public ResponseEntity<List<ChatMessageDTO>> getHistory(@PathVariable String wikiId) {
         logger.debug("Retrieving chat history for wiki {}", wikiId);
-        
+
         try {
-            List<ChatMessage> history = chatService.getConversationHistory(wikiId);
+            List<ChatMessageDTO> history = chatService.getConversationHistory(wikiId).stream()
+                    .map(this::toDto)
+                    .collect(Collectors.toList());
             return ResponseEntity.ok(history);
-            
-        } catch (Exception e) {
-            logger.error("Error retrieving chat history for wiki {}", wikiId, e);
-            return ResponseEntity.internalServerError().build();
+        } catch (IllegalArgumentException e) {
+            logger.warn("Invalid history request for wiki {}: {}", wikiId, e.getMessage());
+            return ResponseEntity.notFound().build();
         }
+    }
+
+    private ChatMessageDTO toDto(ChatMessage message) {
+        return new ChatMessageDTO(
+                message.getId(),
+                message.getRole(),
+                message.getContent(),
+                message.getCreatedAt()
+        );
     }
 }

@@ -1,6 +1,11 @@
 package com.codewiki.config;
 
-import jakarta.servlet.*;
+import com.codewiki.util.LoggingContext;
+import jakarta.servlet.Filter;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -45,7 +50,7 @@ public class LoggingFilter implements Filter {
             // Extract repository URL from query parameters if present
             String repoUrl = httpRequest.getParameter("repositoryUrl");
             if (repoUrl != null && !repoUrl.isEmpty()) {
-                MDC.put(REPOSITORY_URL, sanitizeUrl(repoUrl));
+                MDC.put(REPOSITORY_URL, LoggingContext.sanitizeUrl(repoUrl));
             }
             
             log.debug("Incoming request: {} {}", httpRequest.getMethod(), path);
@@ -56,19 +61,5 @@ public class LoggingFilter implements Filter {
             // Clean up MDC to prevent memory leaks
             MDC.clear();
         }
-    }
-    
-    /**
-     * Sanitize URL to remove any sensitive information
-     */
-    private String sanitizeUrl(String url) {
-        // Remove any query parameters or fragments that might contain sensitive data
-        if (url.contains("?")) {
-            url = url.substring(0, url.indexOf("?"));
-        }
-        if (url.contains("#")) {
-            url = url.substring(0, url.indexOf("#"));
-        }
-        return url;
     }
 }

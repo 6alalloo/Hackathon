@@ -1,0 +1,12 @@
+package com.codewiki.model;
+
+public enum GenerationPhase {
+    INITIALIZING,
+    REGENERATING,
+    CLONING_REPOSITORY,
+    DETECTING_CODE_FILES,
+    GENERATING_WIKI_CONTENT,
+    GENERATION_COMPLETE,
+    GENERATION_FAILED,
+    UNKNOWN
+}

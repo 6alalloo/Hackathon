@@ -3,11 +3,11 @@ package com.codewiki.client;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.lifecycle.AfterTry;
+import net.jqwik.api.lifecycle.BeforeTry;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -25,7 +25,7 @@ class HuggingFaceLLMClientPropertyTest {
     private HuggingFaceLLMClient client;
     private ObjectMapper objectMapper;
     
-    @BeforeEach
+    @BeforeTry
     void setUp() throws IOException {
         mockServer = new MockWebServer();
         mockServer.start();
@@ -44,9 +44,11 @@ class HuggingFaceLLMClientPropertyTest {
         );
     }
     
-    @AfterEach
+    @AfterTry
     void tearDown() throws IOException {
-        mockServer.shutdown();
+        if (mockServer != null) {
+            mockServer.shutdown();
+        }
     }
     
     /**

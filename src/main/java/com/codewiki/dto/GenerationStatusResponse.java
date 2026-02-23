@@ -1,36 +1,39 @@
 package com.codewiki.dto;
 
+import com.codewiki.model.GenerationPhase;
+import com.codewiki.model.GenerationState;
+
 /**
  * Response DTO for generation status polling.
  */
 public class GenerationStatusResponse {
     
-    private String status;
-    private String phase;
+    private GenerationState status;
+    private GenerationPhase phase;
     private String errorMessage;
     
     public GenerationStatusResponse() {
     }
     
-    public GenerationStatusResponse(String status, String phase, String errorMessage) {
+    public GenerationStatusResponse(GenerationState status, GenerationPhase phase, String errorMessage) {
         this.status = status;
         this.phase = phase;
         this.errorMessage = errorMessage;
     }
     
-    public String getStatus() {
+    public GenerationState getStatus() {
         return status;
     }
     
-    public void setStatus(String status) {
+    public void setStatus(GenerationState status) {
         this.status = status;
     }
     
-    public String getPhase() {
+    public GenerationPhase getPhase() {
         return phase;
     }
     
-    public void setPhase(String phase) {
+    public void setPhase(GenerationPhase phase) {
         this.phase = phase;
     }
     

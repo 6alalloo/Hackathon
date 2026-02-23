@@ -1,8 +1,8 @@
 package com.codewiki.config;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -13,14 +13,15 @@ import java.util.concurrent.Executor;
 @EnableAsync
 public class AppConfig {
 
-    @Value("${huggingface.api.url}")
-    private String huggingFaceApiUrl;
+    @Bean
+    public WebClient.Builder webClientBuilder() {
+        return WebClient.builder();
+    }
 
     @Bean
-    public WebClient webClient() {
-        return WebClient.builder()
-                .baseUrl(huggingFaceApiUrl)
-                .build();
+    @Qualifier("githubWebClient")
+    public WebClient githubWebClient(WebClient.Builder webClientBuilder) {
+        return webClientBuilder.baseUrl("https://api.github.com").build();
     }
     
     @Bean(name = "taskExecutor")
